@@ -1,3 +1,6 @@
-.venv
-.idea
-__pycache__
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.langchain_cache.db
+.venv/
