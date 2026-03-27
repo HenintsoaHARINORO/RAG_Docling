@@ -1,0 +1,20 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      # Ollama — matches OLLAMA_URL in config.py
+      OLLAMA_URL: http://host.docker.internal:11434
+
+      # Postgres — matches os.getenv() keys in db/connection.py
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: pdf_chatbot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: your_password
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

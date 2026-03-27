@@ -1,6 +1,7 @@
 # config.py — centralised settings and constants
 
-OLLAMA_URL = "http://localhost:11434"
+import os
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
 # Vision-language model used for picture descriptions
 VLM_MODEL = "qwen3-vl:2b"
