@@ -43,6 +43,6 @@ RETRIEVER_K = 4
 EMBED_TIMEOUT = 60
 EMBED_RETRIES = 3
 EMBED_RETRY_SLEEP = 5
-EMBED_DOC_SLEEP = 1.5        # pause between consecutive embed calls
+EMBED_DOC_SLEEP = 3.0        # pause between consecutive embed calls
 VLM_TIMEOUT = 90
 VLM_MAX_TOKENS = 256

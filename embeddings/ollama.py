@@ -86,6 +86,7 @@ class DirectOllamaEmbeddings(Embeddings):
     """Calls the Ollama embed API directly, one document at a time."""
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        warmup_embedder()
         results = []
         for i, text in enumerate(texts):
             logger.info("Embedding chunk %d/%d", i + 1, len(texts))

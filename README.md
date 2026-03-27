@@ -345,6 +345,12 @@ L'endpoint `/api/embed` est spécifique à Ollama. Avec vLLM, utiliser un modèl
 | `embeddings/ollama.py` | `/api/embed` direct | `OpenAIEmbeddings` | Ollama séparé ou HF |
 | `ingestion/converter.py` | `/v1/chat/completions` Ollama | Inchangé si compatible | Inchangé si compatible |
 
+
+### 4. Captures
+
+![Screenshot](assets/ingestion.png)
+![Screenshot](assets/conversation.png)
+
 ---
 
 ## FAQ
