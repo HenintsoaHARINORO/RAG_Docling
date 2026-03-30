@@ -1,20 +1,50 @@
 services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: pdf_chatbot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdf_chatbot
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: your_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d pdf_chatbot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: pdf_chatbot_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
   app:
     build: .
+    container_name: pdf_chatbot_app
+    restart: unless-stopped
     ports:
       - "8501:8501"
-    env_file:
-      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     environment:
-      # Ollama — matches OLLAMA_URL in config.py
-      OLLAMA_URL: http://host.docker.internal:11434
-
-      # Postgres — matches os.getenv() keys in db/connection.py
-      POSTGRES_HOST: host.docker.internal
+      POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: pdf_chatbot
-      POSTGRES_USER: postgres
+      POSTGRES_USER: user
       POSTGRES_PASSWORD: your_password
+      OLLAMA_URL: http://ollama:11434
 
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+volumes:
+  postgres_data:
+  ollama_data:

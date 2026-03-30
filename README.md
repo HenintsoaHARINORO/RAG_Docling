@@ -8,14 +8,12 @@ Posez des questions sur vos PDF, DOCX, factures, images et tableaux — tout tou
 ## Sommaire
 
 1. [Architecture & structure](#architecture--structure)
-2. [Pipeline d'ingestion](#pipeline-dingestion)
-3. [Choix techniques](#choix-techniques)
-4. [Temps de traitement](#temps-de-traitement)
-5. [Installation](#installation)
-6. [Lancement](#lancement)
-7. [Docker](#docker)
-8. [Changer de backend LLM](#changer-de-backend-llm)
-9. [FAQ](#faq)
+2. [Choix techniques](#choix-techniques)
+3. [Temps de traitement](#temps-de-traitement)
+4. [Installation](#installation)
+5. [Lancement](#lancement)
+6. [Docker](#docker)
+7. [Changer de backend LLM](#changer-de-backend-llm)
 
 ---
 
@@ -54,100 +52,9 @@ ChatPDF/
 └── htmlTemplates.py        # Templates HTML des bulles de chat
 ```
 
-### Flux de données
-
-```
-Fichier uploadé
-     │
-     ▼
-[Docling] ──────────────────────────────────────────────────────┐
-  • Extraction Markdown structuré                               │
-  • Détection des tableaux (TableFormer ACCURATE)              │
-  • Description des images/figures via VLM (qwen3-vl:2b)      │
-     │                                                          │
-     ▼                                                          │
-[Chunker]  →  chunks de 2 000 tokens (overlap 400)            │
-     │                                                          │
-     ▼                                                          │
-[PostgreSQL]  →  documents + chunks persistés                  │
-     │                                                          │
-     ▼                                                          │
-[Ollama /api/embed]  →  nomic-embed-text                       │
-     │                                                          │
-     ▼                                                          │
-[FAISS index]  →  sauvegardé en BYTEA dans PostgreSQL ─────────┘
-     │
-     ▼
-Question utilisateur
-     │
-     ▼
-[Retriever FAISS]  →  top-4 chunks pertinents
-     │
-     ▼
-[LangChain ConversationalRetrievalChain]
-     │
-     ▼
-[Ollama qwen2.5:7b]  →  réponse finale
-```
-
----
-
-## Pipeline d'ingestion
-
-### Docling — extraction des documents
-
-[Docling](https://github.com/DS4SD/docling) est la bibliothèque d'IBM Research pour l'extraction structurée de documents.  
-Il remplace les approches classiques (PyPDF2, python-docx) pour les formats PDF et DOCX.
-
-**Pourquoi Docling plutôt que PyPDF2 seul ?**
-
-| Capacité | PyPDF2 | Docling |
-|---|---|---|
-| Extraction texte brut | ✅ | ✅ |
-| Structure Markdown (titres, listes) | ❌ | ✅ |
-| Détection et extraction de tableaux | ❌ | ✅ (TableFormer) |
-| Description automatique des images | ❌ | ✅ (via VLM) |
-| Factures avec zones complexes | ❌ | ✅ |
-| Export paginé avec marqueurs | ❌ | ✅ |
-
-**Ce qui se passe concrètement (`ingestion/extractor.py`) :**
-
-1. Le fichier uploadé est écrit dans un fichier temporaire
-2. `DocumentConverter.convert()` produit un objet document structuré
-3. `export_to_markdown()` génère du Markdown avec :
-   - des marqueurs de saut de page (`<!-- page_break -->`)
-   - des balises `<image_description>…</image_description>` pour chaque figure
-4. Le Markdown est nettoyé et stocké en base
-
-**Configuration PDF (`ingestion/converter.py`) :**
-
-```python
-PdfPipelineOptions(
-    do_table_structure=True,              # TableFormer ACCURATE
-    generate_picture_images=True,         # Rasterise les figures
-    do_picture_description=True,          # Appelle le VLM sur chaque image
-    picture_description_options=...       # → qwen3-vl:2b via Ollama
-)
-```
-
-### VLM — description des images
-
-Pour les factures et documents avec figures, le modèle `qwen3-vl:2b` est appelé via l'endpoint OpenAI-compatible d'Ollama (`/v1/chat/completions`).  
-Le prompt est orienté OCR : il extrait tout le texte visible de haut en bas.
-
-> **Paramètre clé :** `think=False` désactive le mode raisonnement de qwen3 pour des réponses plus rapides.
-
 ---
 
 ## Choix techniques
-
-### Pourquoi Ollama ?
-
-- **100 % local** : aucune donnée ne quitte la machine — essentiel pour des factures ou documents confidentiels
-- **Gestion des modèles simplifiée** : `ollama pull qwen2.5:7b` suffit
-- **Apple Silicon natif** : Ollama utilise Metal/MLX, les modèles tournent sur le GPU unifié du Mac M-series
-- **`keep_alive: -1`** : le modèle d'embedding reste chargé en mémoire entre les requêtes, évitant le rechargement à chaque chunk
-- **Endpoint OpenAI-compatible** : Docling peut appeler le VLM via `/v1/chat/completions` sans adaptation
 
 ### Pourquoi LangChain ?
 
@@ -160,12 +67,6 @@ Le prompt est orienté OCR : il extrait tout le texte visible de haut en bas.
 - Recherche vectorielle en mémoire, ultra-rapide pour des corpus de taille raisonnable (< 100k chunks)
 - Index sérialisé et stocké en PostgreSQL (colonne `BYTEA`) → pas de fichier à gérer, rechargement instantané
 - Pas de serveur vectoriel supplémentaire à maintenir (pas de Qdrant, Weaviate, etc.)
-
-### Pourquoi PostgreSQL ?
-
-- Persistance des documents, chunks et de l'index FAISS dans une seule base
-- Déduplication via `file_hash` (SHA-256) : un fichier déjà ingéré n'est jamais retraité
-- Requêtes SQL simples pour lister, filtrer, supprimer des documents
 
 ### Modèles utilisés
 
@@ -191,14 +92,6 @@ Les temps varient selon la complexité du document. Mesures indicatives sur **Ma
 | Réponse chat (question complexe) | 15 – 30 secondes |
 
 > Le premier appel d'embedding est plus lent (warmup du modèle). Les suivants sont plus rapides grâce à `keep_alive: -1`.
-
-**Paramètres à ajuster dans `config.py` pour accélérer :**
-
-```python
-EMBED_DOC_SLEEP = 1.5   # réduire si votre machine est puissante
-CHUNK_SIZE = 2000       # réduire pour moins de tokens par appel
-RETRIEVER_K = 4         # réduire pour moins de contexte envoyé au LLM
-```
 
 ---
 
@@ -242,16 +135,14 @@ Créer un fichier `.env` à la racine :
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=pdf_chatbot
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=votre_mot_de_passe
+POSTGRES_USER=user
+POSTGRES_PASSWORD=your_password
 OLLAMA_URL=http://localhost:11434
 ```
 
 ### 5. Initialiser la base de données
 
-```bash
-python -c "from db.connection import init_db; init_db()"
-```
+Les tables sont créées **automatiquement au premier démarrage** de l'application via `db.init_db()` dans `app.py`. Aucune commande manuelle n'est nécessaire.
 
 ---
 
@@ -267,11 +158,35 @@ Ouvrir [http://localhost:8501](http://localhost:8501)
 
 ## Docker
 
-Ollama et PostgreSQL tournent en local — le conteneur Docker contient uniquement l'application Streamlit.
+Docker Compose orchestre **trois services** dans un réseau interne :
+
+| Service | Image | Rôle |
+|---|---|---|
+| `postgres` | `postgres:16-alpine` | Base de données persistante |
+| `ollama` | `ollama/ollama:latest` | Serveur de modèles LLM & embedding |
+| `app` | image buildée localement | Application Streamlit |
+
+### 1. Lancer les services
 
 ```bash
 docker compose up --build
 ```
+
+### 2. Télécharger les modèles Ollama 
+Une fois les conteneurs démarrés :
+
+```bash
+docker exec -it pdf_chatbot_ollama ollama pull nomic-embed-text:latest
+docker exec -it pdf_chatbot_ollama ollama pull qwen2.5:7b
+docker exec -it pdf_chatbot_ollama ollama pull qwen3-vl:2b
+```
+
+> Les modèles sont stockés dans le volume Docker `ollama_data` et persistent entre les redémarrages.
+
+### 3. Accéder à l'application
+
+Ouvrir [http://localhost:8501](http://localhost:8501)
+
 ---
 
 ## Changer de backend LLM
@@ -345,23 +260,11 @@ L'endpoint `/api/embed` est spécifique à Ollama. Avec vLLM, utiliser un modèl
 | `embeddings/ollama.py` | `/api/embed` direct | `OpenAIEmbeddings` | Ollama séparé ou HF |
 | `ingestion/converter.py` | `/v1/chat/completions` Ollama | Inchangé si compatible | Inchangé si compatible |
 
+---
 
-### 4. Captures
+### Captures
 
 ![Screenshot](assets/ingestion.png)
 ![Screenshot](assets/conversation.png)
 
 ---
-
-## FAQ
-**Q : Puis-je utiliser plusieurs documents à la fois ?**  
-R : Oui. Tous les documents ingérés sont indexés ensemble dans FAISS. Le chatbot répond en cherchant dans l'ensemble du corpus.
-
-**Q : Un fichier déjà uploadé est-il retraité ?**  
-R : Non. Chaque fichier est haché (SHA-256). S'il existe déjà en base, l'ingestion est ignorée.
-
-**Q : L'index FAISS est-il rechargé à chaque démarrage ?**  
-R : Oui, depuis PostgreSQL. L'index est sérialisé en `BYTEA` et désérialisé au lancement — pas de fichier local à gérer.
-
-**Q : Pourquoi `EMBED_DOC_SLEEP = 1.5` secondes entre chaque chunk ?**  
-R : Pour éviter de saturer Ollama sur des documents longs. Vous pouvez réduire cette valeur si votre machine le permet.
